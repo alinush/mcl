@@ -1,10 +1,11 @@
 package mcl
 
 import "testing"
+
+//#import "strings"
 import "fmt"
 import "os"
 
-//import "log"
 import "crypto/rand"
 import "flag"
 
@@ -19,7 +20,7 @@ func BenchmarkG1mul(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 
-		var bytes = make([]byte, 32)
+		var bytes = make([]byte, 100)
 		_, err := rand.Read(bytes)
 		if err != nil {
 			fmt.Println("error:", err)
@@ -27,7 +28,9 @@ func BenchmarkG1mul(b *testing.B) {
 		}
 
 		P.HashAndMapTo(bytes)
-		a.SetHashOf(bytes)
+		a.SetByCSPRNG()
+		//var numOnes = strings.Count(a.GetString(2), "1")
+		//fmt.Printf("1s: %d\n", numOnes)
 
 		b.StartTimer()
 		G1Mul(&R, &P, &a)
@@ -45,7 +48,7 @@ func BenchmarkG2mul(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 
-		var bytes = make([]byte, 32)
+		var bytes = make([]byte, 100)
 		_, err := rand.Read(bytes)
 		if err != nil {
 			fmt.Println("error:", err)
@@ -53,7 +56,7 @@ func BenchmarkG2mul(b *testing.B) {
 		}
 
 		P.HashAndMapTo(bytes)
-		a.SetHashOf(bytes)
+		a.SetByCSPRNG()
 
 		b.StartTimer()
 		G2Mul(&R, &P, &a)
@@ -72,7 +75,7 @@ func BenchmarkPairing(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 
-		var bytes = make([]byte, 32)
+		var bytes = make([]byte, 100)
 		_, err := rand.Read(bytes)
 		if err != nil {
 			fmt.Println("error:", err)
@@ -149,6 +152,12 @@ func BenchmarkPairing(b *testing.B) {
 var curve = flag.String("curve", "", "Type of curve to test: bn254, fp382-1, fp382-2, bls12-381")
 
 func TestMain(m *testing.M) {
+	// make sure the randomness works
+	//key := [256]byte{}
+	//rand.Read(key[:])
+	//fmt.Print("Some random bytes: ")
+	//fmt.Println(key)
+
 	flag.Parse()
 
 	var c int
