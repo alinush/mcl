@@ -2,6 +2,7 @@ package mcl
 
 import "testing"
 import "fmt"
+import "crypto/rand"
 
 func testBadPointOfG2(t *testing.T) {
 	var Q G2
@@ -30,6 +31,85 @@ func testHash(t *testing.T) {
 		t.Error("SetHashOf")
 	}
 	fmt.Printf("x=%s\n", x.GetString(16))
+}
+
+func BenchmarkG1mul(b *testing.B) {
+	var a Fr
+	var R, P G1
+
+	//fmt.Printf("P=%s\n", P.GetString(16))
+	//fmt.Printf("a=%s\n", a.GetString(16))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+
+		var bytes = make([]byte, 32)
+		_, err := rand.Read(bytes)
+		if err != nil {
+			fmt.Println("error:", err)
+			return
+		}
+
+		P.HashAndMapTo(bytes)
+		a.SetHashOf(bytes)
+
+		b.StartTimer()
+		G1Mul(&R, &P, &a)
+	}
+}
+
+func BenchmarkG2mul(b *testing.B) {
+	var a Fr
+	var R, P G2
+
+	//fmt.Printf("P=%s\n", P.GetString(16))
+	//fmt.Printf("a=%s\n", a.GetString(16))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+
+		var bytes = make([]byte, 32)
+		_, err := rand.Read(bytes)
+		if err != nil {
+			fmt.Println("error:", err)
+			return
+		}
+
+		P.HashAndMapTo(bytes)
+		a.SetHashOf(bytes)
+
+		b.StartTimer()
+		G2Mul(&R, &P, &a)
+	}
+}
+
+func BenchmarkPairing(b *testing.B) {
+	var e GT
+	var Q G1
+	var P G2
+
+	//fmt.Printf("P=%s\n", P.GetString(16))
+	//fmt.Printf("a=%s\n", a.GetString(16))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+
+		var bytes = make([]byte, 32)
+		_, err := rand.Read(bytes)
+		if err != nil {
+			fmt.Println("error:", err)
+			return
+		}
+
+		P.HashAndMapTo(bytes)
+		Q.HashAndMapTo(bytes)
+
+		b.StartTimer()
+		Pairing(&e, &Q, &P)
+	}
 }
 
 func testNegAdd(t *testing.T) {
@@ -263,7 +343,7 @@ func testETHserialize(t *testing.T) {
 
 func TestMclMain(t *testing.T) {
 	t.Logf("GetMaxOpUnitSize() = %d\n", GetMaxOpUnitSize())
-	t.Log("CurveFp254BNb")
+	//t.Log("CurveFp254BNb")
 	testMcl(t, CurveFp254BNb)
 	if GetMaxOpUnitSize() == 6 {
 		if GetFrUnitSize() == 6 {
