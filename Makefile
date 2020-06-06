@@ -397,6 +397,12 @@ install: lib/libmcl.a lib/libmcl.$(LIB_SUF)
 	cp -a include/cybozu $(PREFIX)/include/
 	$(MKDIR) $(PREFIX)/lib
 	cp -a lib/libmcl.a lib/libmcl.$(LIB_SUF) $(PREFIX)/lib/
+	cp -a $(BN256_LIB) $(PREFIX)/lib/
+	cp -a $(BN256_SLIB) $(PREFIX)/lib/
+	cp -a $(BN384_LIB) $(PREFIX)/lib/
+	cp -a $(BN384_SLIB) $(PREFIX)/lib/
+	cp -a $(BN384_256_LIB) $(PREFIX)/lib/
+	cp -a $(BN384_256_SLIB) $(PREFIX)/lib/
 
 .PHONY: test mcl-wasm she-wasm bin/emu
 
