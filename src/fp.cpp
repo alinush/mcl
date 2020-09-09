@@ -128,86 +128,21 @@ uint32_t sha512(void *out, uint32_t maxOutSize, const void *msg, uint32_t msgSiz
 	return (uint32_t)cybozu::Sha512().digest(out, maxOutSize, msg, msgSize);
 }
 
-void hkdf_extract_addZeroByte(uint8_t hmac[32], const uint8_t *salt, size_t saltSize, const uint8_t *msg, size_t msgSize)
+void expand_message_xmd(uint8_t out[], size_t outSize, const void *msg, size_t msgSize, const void *dst, size_t dstSize)
 {
-	uint8_t saltZero[32];
-	if (salt == 0 || saltSize == 0) {
-		memset(saltZero, 0, sizeof(saltZero));
-		salt = saltZero;
-		saltSize = sizeof(saltZero);
-	}
-	cybozu::hmac256addZeroByte(hmac, salt, saltSize, msg, msgSize);
-}
-
-void hkdf_extract(uint8_t hmac[32], const uint8_t *salt, size_t saltSize, const uint8_t *msg, size_t msgSize)
-{
-	uint8_t saltZero[32];
-	if (salt == 0 || saltSize == 0) {
-		memset(saltZero, 0, sizeof(saltZero));
-		salt = saltZero;
-		saltSize = sizeof(saltZero);
-	}
-	cybozu::hmac256(hmac, salt, saltSize, msg, msgSize);
-}
-
-void hkdf_expand(uint8_t out[64], const uint8_t prk[32], char info[6])
-{
-	info[5] = 1;
-	cybozu::hmac256(out, prk, 32, info, 6);
-	info[5] = 2;
-	memcpy(out + 32, info, 6);
-	cybozu::hmac256(out + 32, prk, 32, out, 32 + 6);
-}
-
-void expand_message_xmd06(uint8_t out[256], const void *msg, size_t msgSize, const void *dst, size_t dstSize)
-{
-	const size_t len_in_bytes = 256;
+	assert(outSize == 128 || outSize == 256);
 	const size_t mdSize = 32;
 	const size_t r_in_bytes = 64;
-	const size_t ell = len_in_bytes / mdSize;
-	static const uint8_t Z_pad[r_in_bytes] = {};
-	assert(dstSize < 256);
-	// BE(len_in_bytes, 2) + BE(0, 1) + BE(dstSize, 1)
-	uint8_t buf[2 + 1 + 1] = { 1, 0, 0, uint8_t(dstSize) };
-	uint8_t *const buf2 = buf + 2; // BE(0, 1) + BE(dstSize, 1)
-	cybozu::Sha256 h;
-	h.update(Z_pad, r_in_bytes);
-	h.update(msg, msgSize);
-	h.update(buf, sizeof(buf));
-	uint8_t md[mdSize];
-	h.digest(md, mdSize, dst, dstSize);
-	h.clear();
-	buf2[0] = 1;
-	h.update(md, mdSize);
-	h.update(buf2, 2);
-	h.digest(out, mdSize, dst, dstSize);
-	uint8_t mdXor[mdSize];
-	for (size_t i = 1; i < ell; i++) {
-		h.clear();
-		for (size_t j = 0; j < mdSize; j++) {
-			mdXor[j] = md[j] ^ out[mdSize * (i - 1) + j];
-		}
-		h.update(mdXor, mdSize);
-		buf2[0] = uint8_t(i + 1);
-		h.update(buf2, 2);
-		h.digest(out + mdSize * i, mdSize, dst, dstSize);
-	}
-}
-
-void expand_message_xmd(uint8_t out[256], const void *msg, size_t msgSize, const void *dst, size_t dstSize)
-{
-	const size_t len_in_bytes = 256;
-	const size_t mdSize = 32;
-	const size_t r_in_bytes = 64;
-	const size_t ell = len_in_bytes / mdSize;
+	const size_t n = outSize / mdSize;
 	static const uint8_t Z_pad[r_in_bytes] = {};
 	assert(dstSize < 256);
 	/*
-		Z_apd | msg | BE(len_in_bytes, 2) | BE(0, 1) | DST | BE(dstSize, 1)
+		Z_apd | msg | BE(outSize, 2) | BE(0, 1) | DST | BE(dstSize, 1)
 	*/
-	static const uint8_t lenBuf[2] = { 1, 0 }; // 256 = len_in_bytes
+	uint8_t lenBuf[2];
 	uint8_t iBuf = 0;
 	uint8_t dstSizeBuf = uint8_t(dstSize);
+	cybozu::Set16bitAsBE(lenBuf, uint16_t(outSize));
 	cybozu::Sha256 h;
 	h.update(Z_pad, r_in_bytes);
 	h.update(msg, msgSize);
@@ -223,7 +158,7 @@ void expand_message_xmd(uint8_t out[256], const void *msg, size_t msgSize, const
 	h.update(dst, dstSize);
 	h.digest(out, mdSize, &dstSizeBuf, 1);
 	uint8_t mdXor[mdSize];
-	for (size_t i = 1; i < ell; i++) {
+	for (size_t i = 1; i < n; i++) {
 		h.clear();
 		for (size_t j = 0; j < mdSize; j++) {
 			mdXor[j] = md[j] ^ out[mdSize * (i - 1) + j];

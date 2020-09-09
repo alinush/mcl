@@ -329,7 +329,7 @@ test: $(TEST_EXE)
 
 EMCC_OPT=-I./include -I./src -Wall -Wextra
 EMCC_OPT+=-O3 -DNDEBUG -DMCLSHE_WIN_SIZE=8
-EMCC_OPT+=-s WASM=1 -s NO_EXIT_RUNTIME=1 -s MODULARIZE=1 #-s ASSERTIONS=1
+EMCC_OPT+=-s WASM=1 -s NO_EXIT_RUNTIME=1 -s NODEJS_CATCH_EXIT=0 -s NODEJS_CATCH_REJECTION=0  -s MODULARIZE=1 #-s ASSERTIONS=1
 EMCC_OPT+=-DCYBOZU_MINIMUM_EXCEPTION
 EMCC_OPT+=-s ABORTING_MALLOC=0
 SHE_C_DEP=src/fp.cpp src/she_c_impl.hpp include/mcl/she.hpp include/mcl/fp.hpp include/mcl/op.hpp include/mcl/she.h Makefile
@@ -339,10 +339,13 @@ ifeq ($(MCL_USE_LLVM),2)
   SHE_C_DEP+=src/base64m.ll
 endif
 ../she-wasm/she_c.js: src/she_c256.cpp $(SHE_C_DEP)
-	emcc -o $@ src/fp.cpp src/she_c256.cpp $(EMCC_OPT) -DMCL_MAX_BIT_SIZE=256 -s TOTAL_MEMORY=67108864 -s DISABLE_EXCEPTION_CATCHING=0
+	emcc -o $@ src/fp.cpp src/she_c256.cpp $(EMCC_OPT) -DMCL_MAX_BIT_SIZE=256 -s TOTAL_MEMORY=67108864 -s DISABLE_EXCEPTION_CATCHING=1
 
 ../she-wasm/she_c384.js: src/she_c384.cpp $(SHE_C_DEP)
-	emcc -o $@ src/fp.cpp src/she_c384.cpp $(EMCC_OPT) -DMCL_MAX_BIT_SIZE=384 -s TOTAL_MEMORY=67108864 -s DISABLE_EXCEPTION_CATCHING=0
+	emcc -o $@ src/fp.cpp src/she_c384.cpp $(EMCC_OPT) -DMCL_MAX_BIT_SIZE=384 -s TOTAL_MEMORY=67108864 -s DISABLE_EXCEPTION_CATCHING=1
+
+../mcl-wasm/mcl_c384_256.js: src/bn_c384_256.cpp $(MCL_C_DEP)
+	emcc -o $@ src/fp.cpp src/bn_c384_256.cpp $(EMCC_OPT) -DMCL_MAX_BIT_SIZE=384 -DMCL_USE_WEB_CRYPTO_API -s DISABLE_EXCEPTION_CATCHING=1 -DCYBOZU_DONT_USE_EXCEPTION -DCYBOZU_DONT_USE_STRING -fno-exceptions -MD -MP -MF obj/mcl_c384_256.d
 
 ../mcl-wasm/mcl_c.js: src/bn_c256.cpp $(MCL_C_DEP)
 	emcc -o $@ src/fp.cpp src/bn_c256.cpp $(EMCC_OPT) -DMCL_MAX_BIT_SIZE=256 -DMCL_USE_WEB_CRYPTO_API -s DISABLE_EXCEPTION_CATCHING=1 -DCYBOZU_DONT_USE_EXCEPTION -DCYBOZU_DONT_USE_STRING -fno-exceptions -MD -MP -MF obj/mcl_c.d
@@ -354,8 +357,9 @@ endif
 	emcc -o $@ src/fp.cpp src/ecdsa_c.cpp $(EMCC_OPT) -DMCL_MAX_BIT_SIZE=256 -DMCL_USE_WEB_CRYPTO_API -s DISABLE_EXCEPTION_CATCHING=1 -DCYBOZU_DONT_USE_EXCEPTION -DCYBOZU_DONT_USE_STRING -fno-exceptions
 
 mcl-wasm:
-	$(MAKE) ../mcl-wasm/mcl_c.js
-	$(MAKE) ../mcl-wasm/mcl_c512.js
+	$(MAKE) ../mcl-wasm/mcl_c384_256.js
+#	$(MAKE) ../mcl-wasm/mcl_c.js
+#	$(MAKE) ../mcl-wasm/mcl_c512.js
 
 she-wasm:
 	$(MAKE) ../she-wasm/she_c.js
@@ -368,7 +372,7 @@ ecdsa-wasm:
 bin/emu:
 	$(CXX) -g -o $@ src/fp.cpp src/bn_c256.cpp test/bn_c256_test.cpp -DMCL_DONT_USE_XBYAK -DMCL_DONT_USE_OPENSSL -DMCL_USE_VINT -DMCL_SIZEOF_UNIT=8 -DMCL_VINT_64BIT_PORTABLE -DMCL_VINT_FIXED_BUFFER -DMCL_MAX_BIT_SIZE=256 -I./include
 bin/pairing_c_min.exe: sample/pairing_c.c include/mcl/vint.hpp src/fp.cpp include/mcl/bn.hpp
-	$(CXX) -std=c++03 -O3 -g -fno-threadsafe-statics -fno-exceptions -fno-rtti -o $@ sample/pairing_c.c src/fp.cpp src/bn_c384_256.cpp -I./include -DMCL_DONT_USE_XBYAK -DMCL_DONT_USE_OPENSSL -DMCL_USE_VINT -DMCL_SIZEOF_UNIT=8 -DMCL_VINT_FIXED_BUFFER -DMCL_MAX_BIT_SIZE=384 -DMCL_VINT_64BIT_PORTABLE -DCYBOZU_DONT_USE_STRING -DCYBOZU_DONT_USE_EXCEPTION -DNDEBUG # -DMCL_DONT_USE_CSPRNG
+	$(CXX) -std=c++03 -O3 -g -fno-threadsafe-statics -fno-exceptions -fno-rtti -o $@ sample/pairing_c.c src/fp.cpp src/bn_c384_256.cpp -I./include -DXBYAK_NO_EXCEPTION -DMCL_DONT_USE_OPENSSL -DMCL_USE_VINT -DMCL_SIZEOF_UNIT=8 -DMCL_VINT_FIXED_BUFFER -DMCL_MAX_BIT_SIZE=384 -DMCL_VINT_64BIT_PORTABLE -DCYBOZU_DONT_USE_STRING -DCYBOZU_DONT_USE_EXCEPTION -DNDEBUG # -DMCL_DONT_USE_CSPRNG
 
 make_tbl:
 	$(MAKE) ../bls/src/qcoeff-bn254.hpp

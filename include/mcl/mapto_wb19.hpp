@@ -9,33 +9,6 @@
 */
 namespace mcl {
 
-// ctr = 0 or 1 or 2
-template<class Fp2>
-inline void hashToFp2old(Fp2& out, const void *msg, size_t msgSize, uint8_t ctr, const void *dst, size_t dstSize)
-{
-	const bool addZeroByte = true; // append zero byte to msg
-	assert(ctr <= 2);
-	const size_t degree = 2;
-	uint8_t msg_prime[32];
-	// add '\0' at the end of dst
-	// see. 5.3. Implementation of https://datatracker.ietf.org/doc/draft-irtf-cfrg-hash-to-curve
-	if (addZeroByte) {
-		fp::hkdf_extract_addZeroByte(msg_prime, reinterpret_cast<const uint8_t*>(dst), dstSize, reinterpret_cast<const uint8_t*>(msg), msgSize);
-	} else {
-		fp::hkdf_extract(msg_prime, reinterpret_cast<const uint8_t*>(dst), dstSize, reinterpret_cast<const uint8_t*>(msg), msgSize);
-	}
-	char info_pfx[] = "H2C000";
-	info_pfx[3] = ctr;
-	for (size_t i = 0; i < degree; i++) {
-		info_pfx[4] = char(i + 1);
-		uint8_t t[64];
-		fp::hkdf_expand(t, msg_prime, info_pfx);
-		bool b;
-		out.getFp0()[i].setBigEndianMod(&b, t, 64);
-		assert(b); (void)b;
-	}
-}
-
 namespace local {
 
 // y^2 = x^3 + 4(1 + i)
@@ -68,34 +41,40 @@ template<class F> int PointT<F>::specialA_;
 
 } // mcl::local
 
-template<class Fp, class Fp2, class G2>
-struct MapToG2_WB19 {
-	typedef local::PointT<Fp2> Point;
+template<class Fp, class G1, class Fp2, class G2>
+struct MapTo_WB19 {
+	typedef local::PointT<Fp> E1;
+	typedef local::PointT<Fp2> E2;
 	mpz_class sqrtConst; // (p^2 - 9) / 16
-	Fp2 Ep_a;
-	Fp2 Ep_b;
+	Fp2 g2A;
+	Fp2 g2B;
 	Fp2 root4[4];
 	Fp2 etas[4];
 	Fp2 xnum[4];
 	Fp2 xden[3];
 	Fp2 ynum[4];
 	Fp2 yden[4];
-	int draftVersion_;
-	void setDraftVersion(int version)
-	{
-		draftVersion_ = version;
-	}
+	Fp g1A, g1B, g1c1, g1c2;
+	Fp g1xnum[12];
+	Fp g1xden[11];
+	Fp g1ynum[16];
+	Fp g1yden[16];
+	mpz_class g1cofactor;
+	int g1Z;
 	void init()
 	{
 		bool b;
-		Ep_a.a = 0;
-		Ep_a.b = 240;
-		Ep_b.a = 1012;
-		Ep_b.b = 1012;
-		Point::a_.clear();
-		Point::b_.a = 4;
-		Point::b_.b = 4;
-		Point::specialA_ = ec::Zero;
+		g2A.a = 0;
+		g2A.b = 240;
+		g2B.a = 1012;
+		g2B.b = 1012;
+		E1::a_.clear();
+		E1::b_ = 4;
+		E1::specialA_ = ec::Zero;
+		E2::a_.clear();
+		E2::b_.a = 4;
+		E2::b_.b = 4;
+		E2::specialA_ = ec::Zero;
 		sqrtConst = Fp::getOp().mp;
 		sqrtConst *= sqrtConst;
 		sqrtConst -= 9;
@@ -130,10 +109,36 @@ struct MapToG2_WB19 {
 		assert(b); (void)b;
 		Fp::neg(etas[3].a, ev4);
 		etas[3].b = ev3;
-		init_iso();
-		draftVersion_ = 5;
+		init_iso3();
+		{
+			const char *A = "0x144698a3b8e9433d693a02c96d4982b0ea985383ee66a8d8e8981aefd881ac98936f8da0e0f97f5cf428082d584c1d";
+			const char *B = "0x12e2908d11688030018b12e8753eee3b2016c1f0f24f4070a0b9c14fcef35ef55a23215a316ceaa5d1cc48e98e172be0";
+			const char *c1 = "0x680447a8e5ff9a692c6e9ed90d2eb35d91dd2e13ce144afd9cc34a83dac3d8907aaffffac54ffffee7fbfffffffeaaa";
+			const char *c2 = "0x3d689d1e0e762cef9f2bec6130316806b4c80eda6fc10ce77ae83eab1ea8b8b8a407c9c6db195e06f2dbeabc2baeff5";
+			g1A.setStr(&b, A);
+			assert(b); (void)b;
+			g1B.setStr(&b, B);
+			assert(b); (void)b;
+			g1c1.setStr(&b, c1);
+			assert(b); (void)b;
+			g1c2.setStr(&b, c2);
+			assert(b); (void)b;
+			g1Z = 11;
+			gmp::setStr(&b, g1cofactor, "d201000000010001", 16);
+			assert(b); (void)b;
+		}
+		init_iso11();
 	}
-	void init_iso()
+	void initArray(Fp *dst, const char **s, size_t n) const
+	{
+		bool b;
+		for (size_t i = 0; i < n; i++) {
+			dst[i].setStr(&b, s[i]);
+			assert(b);
+			(void)b;
+		}
+	}
+	void init_iso3()
 	{
 		const char *tbl[] = {
 			"0x5c759507e8e333ebb5b7a9a47d7ed8532c52d39fd3a042a88b58423c50ae15d5c2638e343d9c71c6238aaaaaaaa97d6",
@@ -184,19 +189,89 @@ struct MapToG2_WB19 {
 		yden[3].a = 1;
 		yden[3].b.clear();
 	}
-	template<size_t N>
-	void evalPoly(Fp2& y, const Fp2& x, const Fp2 *zpows, const Fp2 (&cof)[N]) const
+	void init_iso11()
+	{
+		const char *xnumStr[] = {
+			"0x11a05f2b1e833340b809101dd99815856b303e88a2d7005ff2627b56cdb4e2c85610c2d5f2e62d6eaeac1662734649b7",
+			"0x17294ed3e943ab2f0588bab22147a81c7c17e75b2f6a8417f565e33c70d1e86b4838f2a6f318c356e834eef1b3cb83bb",
+			"0xd54005db97678ec1d1048c5d10a9a1bce032473295983e56878e501ec68e25c958c3e3d2a09729fe0179f9dac9edcb0",
+			"0x1778e7166fcc6db74e0609d307e55412d7f5e4656a8dbf25f1b33289f1b330835336e25ce3107193c5b388641d9b6861",
+			"0xe99726a3199f4436642b4b3e4118e5499db995a1257fb3f086eeb65982fac18985a286f301e77c451154ce9ac8895d9",
+			"0x1630c3250d7313ff01d1201bf7a74ab5db3cb17dd952799b9ed3ab9097e68f90a0870d2dcae73d19cd13c1c66f652983",
+			"0xd6ed6553fe44d296a3726c38ae652bfb11586264f0f8ce19008e218f9c86b2a8da25128c1052ecaddd7f225a139ed84",
+			"0x17b81e7701abdbe2e8743884d1117e53356de5ab275b4db1a682c62ef0f2753339b7c8f8c8f475af9ccb5618e3f0c88e",
+			"0x80d3cf1f9a78fc47b90b33563be990dc43b756ce79f5574a2c596c928c5d1de4fa295f296b74e956d71986a8497e317",
+			"0x169b1f8e1bcfa7c42e0c37515d138f22dd2ecb803a0c5c99676314baf4bb1b7fa3190b2edc0327797f241067be390c9e",
+			"0x10321da079ce07e272d8ec09d2565b0dfa7dccdde6787f96d50af36003b14866f69b771f8c285decca67df3f1605fb7b",
+			"0x6e08c248e260e70bd1e962381edee3d31d79d7e22c837bc23c0bf1bc24c6b68c24b1b80b64d391fa9c8ba2e8ba2d229",
+		};
+		const char *xdenStr[] = {
+			"0x8ca8d548cff19ae18b2e62f4bd3fa6f01d5ef4ba35b48ba9c9588617fc8ac62b558d681be343df8993cf9fa40d21b1c",
+			"0x12561a5deb559c4348b4711298e536367041e8ca0cf0800c0126c2588c48bf5713daa8846cb026e9e5c8276ec82b3bff",
+			"0xb2962fe57a3225e8137e629bff2991f6f89416f5a718cd1fca64e00b11aceacd6a3d0967c94fedcfcc239ba5cb83e19",
+			"0x3425581a58ae2fec83aafef7c40eb545b08243f16b1655154cca8abc28d6fd04976d5243eecf5c4130de8938dc62cd8",
+			"0x13a8e162022914a80a6f1d5f43e7a07dffdfc759a12062bb8d6b44e833b306da9bd29ba81f35781d539d395b3532a21e",
+			"0xe7355f8e4e667b955390f7f0506c6e9395735e9ce9cad4d0a43bcef24b8982f7400d24bc4228f11c02df9a29f6304a5",
+			"0x772caacf16936190f3e0c63e0596721570f5799af53a1894e2e073062aede9cea73b3538f0de06cec2574496ee84a3a",
+			"0x14a7ac2a9d64a8b230b3f5b074cf01996e7f63c21bca68a81996e1cdf9822c580fa5b9489d11e2d311f7d99bbdcc5a5e",
+			"0xa10ecf6ada54f825e920b3dafc7a3cce07f8d1d7161366b74100da67f39883503826692abba43704776ec3a79a1d641",
+			"0x95fc13ab9e92ad4476d6e3eb3a56680f682b4ee96f7d03776df533978f31c1593174e4b4b7865002d6384d168ecdd0a",
+			"0x1",
+		};
+		const char *ynumStr[] = {
+			"0x90d97c81ba24ee0259d1f094980dcfa11ad138e48a869522b52af6c956543d3cd0c7aee9b3ba3c2be9845719707bb33",
+			"0x134996a104ee5811d51036d776fb46831223e96c254f383d0f906343eb67ad34d6c56711962fa8bfe097e75a2e41c696",
+			"0xcc786baa966e66f4a384c86a3b49942552e2d658a31ce2c344be4b91400da7d26d521628b00523b8dfe240c72de1f6",
+			"0x1f86376e8981c217898751ad8746757d42aa7b90eeb791c09e4a3ec03251cf9de405aba9ec61deca6355c77b0e5f4cb",
+			"0x8cc03fdefe0ff135caf4fe2a21529c4195536fbe3ce50b879833fd221351adc2ee7f8dc099040a841b6daecf2e8fedb",
+			"0x16603fca40634b6a2211e11db8f0a6a074a7d0d4afadb7bd76505c3d3ad5544e203f6326c95a807299b23ab13633a5f0",
+			"0x4ab0b9bcfac1bbcb2c977d027796b3ce75bb8ca2be184cb5231413c4d634f3747a87ac2460f415ec961f8855fe9d6f2",
+			"0x987c8d5333ab86fde9926bd2ca6c674170a05bfe3bdd81ffd038da6c26c842642f64550fedfe935a15e4ca31870fb29",
+			"0x9fc4018bd96684be88c9e221e4da1bb8f3abd16679dc26c1e8b6e6a1f20cabe69d65201c78607a360370e577bdba587",
+			"0xe1bba7a1186bdb5223abde7ada14a23c42a0ca7915af6fe06985e7ed1e4d43b9b3f7055dd4eba6f2bafaaebca731c30",
+			"0x19713e47937cd1be0dfd0b8f1d43fb93cd2fcbcb6caf493fd1183e416389e61031bf3a5cce3fbafce813711ad011c132",
+			"0x18b46a908f36f6deb918c143fed2edcc523559b8aaf0c2462e6bfe7f911f643249d9cdf41b44d606ce07c8a4d0074d8e",
+			"0xb182cac101b9399d155096004f53f447aa7b12a3426b08ec02710e807b4633f06c851c1919211f20d4c04f00b971ef8",
+			"0x245a394ad1eca9b72fc00ae7be315dc757b3b080d4c158013e6632d3c40659cc6cf90ad1c232a6442d9d3f5db980133",
+			"0x5c129645e44cf1102a159f748c4a3fc5e673d81d7e86568d9ab0f5d396a7ce46ba1049b6579afb7866b1e715475224b",
+			"0x15e6be4e990f03ce4ea50b3b42df2eb5cb181d8f84965a3957add4fa95af01b2b665027efec01c7704b456be69c8b604",
+		};
+		const char *ydenStr[] = {
+			"0x16112c4c3a9c98b252181140fad0eae9601a6de578980be6eec3232b5be72e7a07f3688ef60c206d01479253b03663c1",
+			"0x1962d75c2381201e1a0cbd6c43c348b885c84ff731c4d59ca4a10356f453e01f78a4260763529e3532f6102c2e49a03d",
+			"0x58df3306640da276faaae7d6e8eb15778c4855551ae7f310c35a5dd279cd2eca6757cd636f96f891e2538b53dbf67f2",
+			"0x16b7d288798e5395f20d23bf89edb4d1d115c5dbddbcd30e123da489e726af41727364f2c28297ada8d26d98445f5416",
+			"0xbe0e079545f43e4b00cc912f8228ddcc6d19c9f0f69bbb0542eda0fc9dec916a20b15dc0fd2ededda39142311a5001d",
+			"0x8d9e5297186db2d9fb266eaac783182b70152c65550d881c5ecd87b6f0f5a6449f38db9dfa9cce202c6477faaf9b7ac",
+			"0x166007c08a99db2fc3ba8734ace9824b5eecfdfa8d0cf8ef5dd365bc400a0051d5fa9c01a58b1fb93d1a1399126a775c",
+			"0x16a3ef08be3ea7ea03bcddfabba6ff6ee5a4375efa1f4fd7feb34fd206357132b920f5b00801dee460ee415a15812ed9",
+			"0x1866c8ed336c61231a1be54fd1d74cc4f9fb0ce4c6af5920abc5750c4bf39b4852cfe2f7bb9248836b233d9d55535d4a",
+			"0x167a55cda70a6e1cea820597d94a84903216f763e13d87bb5308592e7ea7d4fbc7385ea3d529b35e346ef48bb8913f55",
+			"0x4d2f259eea405bd48f010a01ad2911d9c6dd039bb61a6290e591b36e636a5c871a5c29f4f83060400f8b49cba8f6aa8",
+			"0xaccbb67481d033ff5852c1e48c50c477f94ff8aefce42d28c0f9a88cea7913516f968986f7ebbea9684b529e2561092",
+			"0xad6b9514c767fe3c3613144b45f1496543346d98adf02267d5ceef9a00d9b8693000763e3b90ac11e99b138573345cc",
+			"0x2660400eb2e4f3b628bdd0d53cd76f2bf565b94e72927c1cb748df27942480e420517bd8714cc80d1fadc1326ed06f7",
+			"0xe0fa1d816ddc03e6b24255e0d7819c171c40f65e273b853324efcd6356caa205ca2f570f13497804415473a1d634b8f",
+			"0x1",
+		};
+		initArray(g1xnum, xnumStr, CYBOZU_NUM_OF_ARRAY(xnumStr));
+		initArray(g1xden, xdenStr, CYBOZU_NUM_OF_ARRAY(xdenStr));
+		initArray(g1ynum, ynumStr, CYBOZU_NUM_OF_ARRAY(ynumStr));
+		initArray(g1yden, ydenStr, CYBOZU_NUM_OF_ARRAY(ydenStr));
+	}
+	template<class F, size_t N>
+	void evalPoly(F& y, const F& x, const F *zpows, const F (&cof)[N]) const
 	{
 		y = cof[N - 1]; // always zpows[0] = 1
 		for (size_t i = 1; i < N; i++) {
 			y *= x;
-			Fp2 t;
-			Fp2::mul(t, zpows[i - 1], cof[N - 1 - i]);
+			F t;
+			F::mul(t, zpows[i - 1], cof[N - 1 - i]);
 			y += t;
 		}
 	}
 	// refer (xnum, xden, ynum, yden)
-	void iso3(G2& Q, const Point& P) const
+	void iso3(G2& Q, const E2& P) const
 	{
 		Fp2 zpows[3];
 		Fp2::sqr(zpows[0], P.z);
@@ -219,6 +294,37 @@ struct MapToG2_WB19 {
 		Fp2::mul(Q.y, mapvals[2], mapvals[1]);
 		Q.y *= t;
 	}
+	template<class X, class C, size_t N>
+	X evalPoly2(const X& x, const C (&c)[N]) const
+	{
+		X ret = c[N - 1];
+		for (size_t i = 1; i < N; i++) {
+			ret *= x;
+			ret += c[N - 1 - i];
+		}
+		return ret;
+	}
+	// refer (g1xnum, g1xden, g1ynum, g1yden)
+	void iso11(G1& Q, E1& P) const
+	{
+		ec::normalizeJacobi(P);
+		Fp xn, xd, yn, yd;
+		xn = evalPoly2(P.x, g1xnum);
+		xd = evalPoly2(P.x, g1xden);
+		yn = evalPoly2(P.x, g1ynum);
+		yd = evalPoly2(P.x, g1yden);
+		/*
+			[xn/xd:y * yn/yd:1] = [xn xd yd^2:y yn xd^3 yd^2:xd yd]
+			=[xn yd z:y yn xd z^2:z] where z = xd yd
+		*/
+		Fp::mul(Q.z, xd, yd);
+		Fp::mul(Q.x, xn, yd);
+		Q.x *= Q.z;
+		Fp::mul(Q.y, P.y, yn);
+		Q.y *= xd;
+		Fp::sqr(xd, Q.z);
+		Q.y *= xd;
+	}
 	/*
 		xi = -2-i
 		(a+bi)*(-2-i) = (b-2a)-(a+2b)i
@@ -233,31 +339,77 @@ struct MapToG2_WB19 {
 		Fp::neg(y.b, y.b);
 		y.a = t;
 	}
-	bool sgn0(const Fp& x) const
+	bool isNegSign(const Fp& x) const
 	{
 		return x.isOdd();
 	}
-	bool sgn0(const Fp2& x) const
-	{
-		bool sign0 = sgn0(x.a);
-		bool zero0 = x.a.isZero();
-		bool sign1 = sgn0(x.b);
-		return sign0 || (zero0 & sign1);
-	}
 	bool isNegSign(const Fp2& x) const
 	{
-		if (draftVersion_ == 7) {
-			return sgn0(x);
+		bool sign0 = isNegSign(x.a);
+		bool zero0 = x.a.isZero();
+		bool sign1 = isNegSign(x.b);
+		return sign0 || (zero0 & sign1);
+	}
+	// https://tools.ietf.org/html/draft-irtf-cfrg-hash-to-curve-07#appendix-D.3.5
+	void sswuG1(Fp& xn, Fp& xd, Fp& y, const Fp& u) const
+	{
+		const Fp& A = g1A;
+		const Fp& B = g1B;
+		const Fp& c1 = g1c1;
+		const Fp& c2 = g1c2;
+		const int Z = g1Z;
+		Fp u2, u2Z, t, t2, t3;
+
+		Fp::sqr(u2, u);
+		Fp::mulUnit(u2Z, u2, Z);
+		Fp::sqr(t, u2Z);
+		Fp::add(xd, t, u2Z);
+		if (xd.isZero()) {
+			Fp::mulUnit(xd, A, Z);
+			xn = B;
+		} else {
+			Fp::add(xn, xd, Fp::one());
+			xn *= B;
+			xd *= A;
+			Fp::neg(xd, xd);
 		}
-		// x.isNegative() <=> x > (p-1)/2 <=> x >= (p+1)/2
-		if (x.b.isNegative()) return true;
-		if (!x.b.isZero()) return false;
-		if (x.a.isNegative()) return true;
-		if (!x.b.isZero()) return false;
-		return false;
+		Fp::sqr(t, xd);
+		Fp::mul(t2, t, xd);
+		t *= A;
+		Fp::sqr(t3, xn);
+		t3 += t;
+		t3 *= xn;
+		Fp::mul(t, t2, B);
+		t3 += t;
+		Fp::sqr(y, t2);
+		Fp::mul(t, t3, t2);
+		y *= t;
+		Fp::pow(y, y, c1);
+		y *= t;
+		Fp::sqr(t, y);
+		t *= t2;
+		if (t != t3) {
+			xn *= u2Z;
+			y *= c2;
+			y *= u2;
+			y *= u;
+		}
+		if (isNegSign(u) != isNegSign(y)) {
+			Fp::neg(y, y);
+		}
+	}
+	void sswuG1(E1& pt, const Fp& u) const
+	{
+		Fp xn, y;
+		Fp& xd = pt.z;
+		sswuG1(xn, xd, y, u);
+		Fp::mul(pt.x, xn, xd);
+		Fp::sqr(pt.y, xd);
+		pt.y *= xd;
+		pt.y *= y;
 	}
 	// https://github.com/algorand/bls_sigs_ref
-	void osswu2_help(Point& P, const Fp2& t) const
+	void sswuG2(E2& P, const Fp2& t) const
 	{
 		Fp2 t2, t2xi;
 		Fp2::sqr(t2, t);
@@ -269,20 +421,20 @@ struct MapToG2_WB19 {
 		den += den2;
 		Fp2 x0_num, x0_den;
 		Fp2::add(x0_num, den, 1);
-		x0_num *= Ep_b;
+		x0_num *= g2B;
 		if (den.isZero()) {
-			mul_xi(x0_den, Ep_a);
+			mul_xi(x0_den, g2A);
 		} else {
-			Fp2::mul(x0_den, -Ep_a, den);
+			Fp2::mul(x0_den, -g2A, den);
 		}
 		Fp2 x0_den2, x0_den3, gx0_den, gx0_num;
 		Fp2::sqr(x0_den2, x0_den);
 		Fp2::mul(x0_den3, x0_den2, x0_den);
 		gx0_den = x0_den3;
 
-		Fp2::mul(gx0_num, Ep_b, gx0_den);
+		Fp2::mul(gx0_num, g2B, gx0_den);
 		Fp2 tmp, tmp1, tmp2;
-		Fp2::mul(tmp, Ep_a, x0_num);
+		Fp2::mul(tmp, g2A, x0_num);
 		tmp *= x0_den2;
 		gx0_num += tmp;
 		Fp2::sqr(tmp, x0_num);
@@ -340,84 +492,6 @@ struct MapToG2_WB19 {
 		}
 		assert(0);
 	}
-#if 0
-	void h2_chain(G2& out, const G2& P) const
-	{
-		G2 t[16];
-		t[0] = P;
-		G2::dbl(t[1], t[0]);
-		G2::add(t[4], t[1], t[0]);
-		G2::add(t[2], t[4], t[1]);
-		G2::add(t[3], t[2], t[1]);
-		G2::add(t[11], t[3], t[1]);
-		G2::add(t[9], t[11], t[1]);
-		G2::add(t[10], t[9], t[1]);
-		G2::add(t[5], t[10], t[1]);
-		G2::add(t[7], t[5], t[1]);
-		G2::add(t[15], t[7], t[1]);
-		G2::add(t[13], t[15], t[1]);
-		G2::add(t[6], t[13], t[1]);
-		G2::add(t[14], t[6], t[1]);
-		G2::add(t[12], t[14], t[1]);
-		G2::add(t[8], t[12], t[1]);
-		G2::dbl(t[1], t[6]);
-
-		const struct {
-			uint32_t n;
-			uint32_t idx;
-		} tbl[] = {
-			{ 5, 13 }, { 2, 0 }, { 9, 8 }, { 5, 11 }, { 6, 13 }, { 8, 2 }, { 5, 3 },
-			{ 5, 3 }, { 4, 5 }, { 4, 0 }, { 8, 11 }, { 8, 8 }, { 4, 2 }, { 9, 5 },
-			{ 6, 11 }, { 2, 0 }, { 9, 8 }, { 5, 13 }, { 4, 0 }, { 11, 9 }, { 7, 12 },
-			{ 7, 7 }, { 5, 12 }, { 5, 14 }, { 8, 13 }, { 6, 3 }, { 5, 0 }, { 8, 9 },
-			{ 6, 13 }, { 4, 10 }, { 4, 2 }, { 6, 10 }, { 6, 2 }, { 4, 0 }, { 10, 9 },
-			{ 6, 14 }, { 4, 3 }, { 6, 9 }, { 6, 15 }, { 5, 8 }, { 5, 12 }, { 4, 5 },
-			{ 6, 15 }, { 6, 2 }, { 7, 5 }, { 6, 3 }, { 6, 9 }, { 6, 15 }, { 6, 14 },
-			{ 5, 8 }, { 10, 6 }, { 5, 5 }, { 3, 0 }, { 9, 13 }, { 7, 12 }, { 4, 5 },
-			{ 6, 2 }, { 6, 11 }, { 4, 10 }, { 4, 4 }, { 6, 10 }, { 7, 7 }, { 3, 2 },
-			{ 4, 3 }, { 8, 9 }, { 8, 9 }, { 6, 8 }, { 5, 7 }, { 5, 6 }, { 6, 5 },
-			{ 6, 4 }, { 5, 5 }, { 6, 4 }, { 6, 3 }, { 6, 4 }, { 6, 5 }, { 6, 3 },
-			{ 7, 3 }, { 6, 3 }, { 5, 4 }, { 6, 3 }, { 6, 3 }, { 3, 0 }, { 6, 3 },
-			{ 6, 3 },
-		};
-		for (size_t j = 0; j < CYBOZU_NUM_OF_ARRAY(tbl); j++) {
-			const uint32_t n = tbl[j].n;
-			for (size_t i = 0; i < n; i++) G2::dbl(t[1], t[1]);
-			G2::add(t[1], t[1], t[tbl[j].idx]);
-		}
-		for (size_t i = 0; i < 5; i++) G2::dbl(t[1], t[1]);
-		G2::add(out, t[1], t[2]);
-	}
-	void mx_chain(G2& Q, const G2& P) const
-	{
-		G2 T;
-		G2::dbl(T, P);
-		const size_t tbl[] = { 2, 3, 9, 32, 16 };
-		for (size_t i = 0; i < CYBOZU_NUM_OF_ARRAY(tbl); i++) {
-			G2::add(T, T, P);
-			for (size_t j = 0; j < tbl[i]; j++) {
-				G2::dbl(T, T);
-			}
-		}
-		Q = T;
-	}
-#endif
-	void clear_h2(G2& Q, const G2& P) const
-	{
-#if 1
-		// 1.9Mclk can be reduced
-		mcl::local::mulByCofactorBLS12fast(Q, P);
-#else
-		G2 T0, T1;
-		h2_chain(T0, P);
-		G2::dbl(T1, T0);
-		G2::add(T1, T0, T1);
-		mx_chain(T0, T1);
-		mx_chain(T0, T0);
-		G2::neg(T1, T1);
-		G2::add(Q, T0, T1);
-#endif
-	}
 	template<class T>
 	void put(const T& P) const
 	{
@@ -426,27 +500,22 @@ struct MapToG2_WB19 {
 		printf("y=%s\n", P.y.getStr(base).c_str());
 		printf("z=%s\n", P.z.getStr(base).c_str());
 	}
-	void opt_swu2_map(G2& P, const Fp2& t, const Fp2 *t2 = 0) const
+	void Fp2ToG2(G2& P, const Fp2& t, const Fp2 *t2 = 0) const
 	{
-		Point Pp;
-		osswu2_help(Pp, t);
+		E2 Pp;
+		sswuG2(Pp, t);
 		if (t2) {
-			Point P2;
-			osswu2_help(P2, *t2);
+			E2 P2;
+			sswuG2(P2, *t2);
 			ec::addJacobi(Pp, Pp, P2);
 		}
 		iso3(P, Pp);
-		clear_h2(P, P);
+		mcl::local::mulByCofactorBLS12fast(P, P);
 	}
-	// hash-to-curve-06
 	void hashToFp2(Fp2 out[2], const void *msg, size_t msgSize, const void *dst, size_t dstSize) const
 	{
 		uint8_t md[256];
-		if (draftVersion_ == 6) {
-			mcl::fp::expand_message_xmd06(md, msg, msgSize, dst, dstSize);
-		} else {
-			mcl::fp::expand_message_xmd(md, msg, msgSize, dst, dstSize);
-		}
+		mcl::fp::expand_message_xmd(md, sizeof(md), msg, msgSize, dst, dstSize);
 		Fp *x = out[0].getFp0();
 		for (size_t i = 0; i < 4; i++) {
 			bool b;
@@ -454,26 +523,48 @@ struct MapToG2_WB19 {
 			assert(b); (void)b;
 		}
 	}
-	void map2curve_osswu2(G2& out, const void *msg, size_t msgSize, const void *dst, size_t dstSize) const
+	void msgToG2(G2& out, const void *msg, size_t msgSize, const void *dst, size_t dstSize) const
 	{
 		Fp2 t[2];
-		if (draftVersion_ == 5) {
-			hashToFp2old(t[0], msg, msgSize, 0, dst, dstSize);
-			hashToFp2old(t[1], msg, msgSize, 1, dst, dstSize);
-		} else {
-			hashToFp2(t, msg, msgSize, dst, dstSize);
-		}
-		opt_swu2_map(out, t[0], &t[1]);
+		hashToFp2(t, msg, msgSize, dst, dstSize);
+		Fp2ToG2(out, t[0], &t[1]);
 	}
 	void msgToG2(G2& out, const void *msg, size_t msgSize) const
 	{
-		const char *dst;
-		if (draftVersion_ == 5) {
-			dst = "BLS_SIG_BLS12381G2-SHA256-SSWU-RO-_POP_";
-		} else {
-			dst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
+		const char *dst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
+		const size_t dstSize = strlen(dst);
+		msgToG2(out, msg, msgSize, dst, dstSize);
+	}
+	void FpToG1(G1& out, const Fp& u0, const Fp *u1 = 0) const
+	{
+		E1 P1;
+		sswuG1(P1, u0);
+		if (u1) {
+			E1 P2;
+			sswuG1(P2, *u1);
+			ec::addJacobi(P1, P1, P2);
 		}
-		map2curve_osswu2(out, msg, msgSize, dst, strlen(dst));
+		iso11(out, P1);
+		G1::mulGeneric(out, out, g1cofactor);
+	}
+	void msgToG1(G1& out, const void *msg, size_t msgSize, const char *dst, size_t dstSize) const
+	{
+		uint8_t md[128];
+		mcl::fp::expand_message_xmd(md, sizeof(md), msg, msgSize, dst, dstSize);
+		Fp u[2];
+		for (size_t i = 0; i < 2; i++) {
+			bool b;
+			u[i].setBigEndianMod(&b, &md[64 * i], 64);
+			assert(b); (void)b;
+		}
+		FpToG1(out, u[0], &u[1]);
+	}
+
+	void msgToG1(G1& out, const void *msg, size_t msgSize) const
+	{
+		const char *dst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
+		const size_t dstSize = strlen(dst);
+		msgToG1(out, msg, msgSize, dst, dstSize);
 	}
 };
 

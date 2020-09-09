@@ -10,10 +10,13 @@ mcl is a library for pairing-based cryptography,
 which supports the optimal Ate pairing over BN curves and BLS12-381 curves.
 
 # News
-- `MCL_MAP_TO_MODE_HASH_TO_CURVE_07` is added for [draft-07](https://www.ietf.org/id/draft-irtf-cfrg-hash-to-curve-07.txt).
+- `mclBn_eth*` functions are removed.
+- `mcl::bn::mapToG1(G1& out, const Fp& v)` supports `BLS12_MAP_FP_TO_G1` in [EIP 2537](https://eips.ethereum.org/EIPS/eip-2537).
+- `mcl::bn::hashAndMapToG1(G1& out, const void *msg, size_t msgSize)` supports ([hash-to-curve-09 BLS12381G1_XMD:SHA-256_SSWU_RO_](https://www.ietf.org/id/draft-irtf-cfrg-hash-to-curve-09.html#name-bls12381g1_xmdsha-256_sswu_))
+- `MCL_MAP_TO_MODE_HASH_TO_CURVE_07` is added for [hash-to-curve-draft-07](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hash-to-curve/07/).
   - The older version will be removed in the future.
 - change DST of hash-to-curve for `MCL_MAP_TO_MODE_HASH_TO_CURVE_06`.
-- add new hash-to-curve function of [draft-irtf-cfrg-hash-to-curve](https://cfrg.github.io/draft-irtf-cfrg-hash-to-curve/draft-irtf-cfrg-hash-to-curve.txt) at March 2020.
+- add new hash-to-curve function of [hash-to-curve-draft-06](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hash-to-curve/06/) at March 2020.
   - call `setETHmode(MCL_MAP_TO_MODE_HASH_TO_CURVE_06);`
   - The older `MAP_TO_MODE` will be removed after the draft is fixed.
 - add new hash functions corresponding to python-impl of [algorand/bls_sig_ref](https://github.com/algorand/bls_sigs_ref).
@@ -149,12 +152,24 @@ cmake .. -A x64
 msbuild mcl.sln /p:Configuration=Release /m
 ```
 
+For your convenience you could use the build script `build.sh` on Linux, macOS and
+Windows (requires Git Bash).
+
+On Windows, `build.sh` expects [cybozulib_ext](https://github.com/herumi/cybozulib_ext) to be within the same parent directory, otherwise, it will be downloaded into `external\cybozulib_ext` directory.
+
 ## options
 
 ```
-cmake .. USE_GMP=OFF ; without GMP
+cmake .. MCL_USE_GMP=OFF ; without GMP
 ```
 see `cmake .. -LA`.
+
+## tests
+make test binaries in `./bin`.
+```
+cmake .. -DBUILD_TESTING=ON
+make -j4
+```
 
 # How to build for wasm(WebAssembly)
 mcl supports emcc (Emscripten) and `test/bn_test.cpp` runs on browers such as Firefox, Chrome and Edge.
@@ -282,8 +297,8 @@ modified new BSD License
 http://opensource.org/licenses/BSD-3-Clause
 
 This library contains some part of the followings software licensed by BSD-3-Clause.
-* [xbyak](https://github.com/heurmi/xbyak)
-* [cybozulib](https://github.com/heurmi/cybozulib)
+* [xbyak](https://github.com/herumi/xbyak)
+* [cybozulib](https://github.com/herumi/cybozulib)
 * [Lifted-ElGamal](https://github.com/aistcrypt/Lifted-ElGamal)
 
 # References
@@ -312,6 +327,8 @@ If `MCL_USE_OLD_MAPTO_FOR_BLS12` is defined, then the old function is used, but 
 
 # History
 
+- 2020/Jun/07 v1.22 remove old hash-to-curve functions
+- 2020/Jun/04 v1.21 mapToG1 and hashAndMapToG1 are compatible to irtf/eip-2537
 - 2020/May/13 v1.09 support draft-irtf-cfrg-hash-to-curve-07
 - 2020/Mar/26 v1.07 change DST for hash-to-curve-06
 - 2020/Mar/15 v1.06 support hash-to-curve-06

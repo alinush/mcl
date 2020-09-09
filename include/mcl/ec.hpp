@@ -116,7 +116,7 @@ void mul1CT(G& Q, const G& P, const mpz_class& x)
 			}
 		}
 	}
-	mcl::FixedArray<int8_t, sizeof(F) * 8 / w + 1> vTbl[splitN];
+	mcl::FixedArray<uint8_t, sizeof(F) * 8 / w + 1> vTbl[splitN];
 	size_t bitSizeTbl[splitN];
 	size_t maxBitSize = 0;
 	for (size_t i = 0; i < splitN; i++) {
@@ -126,18 +126,18 @@ void mul1CT(G& Q, const G& P, const mpz_class& x)
 			maxBitSize = bitSize;
 		}
 	}
-	int loopN = (maxBitSize + w - 1) / w;
+	size_t loopN = (maxBitSize + w - 1) / w;
 	for (int i = 0; i < splitN; i++) {
 		fp::ArrayIterator<fp::Unit> itr(gmp::getUnit(u[i]), bitSizeTbl[i], w);
 		bool b = vTbl[i].resize(loopN);
 		assert(b);
 		(void)b;
-		for (int j = 0; j < loopN; j++) {
-			vTbl[i][loopN - 1 - j] = itr.getNext();
+		for (size_t j = 0; j < loopN; j++) {
+			vTbl[i][loopN - 1 - j] = (uint8_t)itr.getNext();
 		}
 	}
 	Q.clear();
-	for (int k = 0; k < loopN; k++) {
+	for (size_t k = 0; k < loopN; k++) {
 		for (size_t i = 0; i < w; i++) {
 			G::dbl(Q, Q);
 		}
@@ -227,6 +227,12 @@ template<class E>
 bool isEqualJacobi(const E& P1, const E& P2)
 {
 	typedef typename E::Fp F;
+	bool zero1 = P1.isZero();
+	bool zero2 = P2.isZero();
+	if (zero1) {
+		return zero2;
+	}
+	if (zero2) return false;
 	F s1, s2, t1, t2;
 	F::sqr(s1, P1.z);
 	F::sqr(s2, P2.z);
@@ -452,6 +458,12 @@ template<class E>
 bool isEqualProj(const E& P1, const E& P2)
 {
 	typedef typename E::Fp F;
+	bool zero1 = P1.isZero();
+	bool zero2 = P2.isZero();
+	if (zero1) {
+		return zero2;
+	}
+	if (zero2) return false;
 	F t1, t2;
 	F::mul(t1, P1.x, P2.z);
 	F::mul(t2, P2.x, P1.z);
@@ -702,7 +714,7 @@ public:
 	static bool verifyOrder_;
 	static mpz_class order_;
 	static void (*mulArrayGLV)(EcT& z, const EcT& x, const fp::Unit *y, size_t yn, bool isNegative, bool constTime);
-	static size_t (*mulVecNGLV)(EcT& z, const EcT *xVec, const mpz_class *yVec, size_t yn, bool constTime);
+	static size_t (*mulVecNGLV)(EcT& z, const EcT *xVec, const mpz_class *yVec, size_t yn);
 	/* default constructor is undefined value */
 	EcT() {}
 	EcT(const Fp& _x, const Fp& _y)
@@ -768,7 +780,7 @@ public:
 			// don't clear order_ because it is used for isValidOrder()
 		}
 	}
-	static void setMulArrayGLV(void f(EcT& z, const EcT& x, const fp::Unit *y, size_t yn, bool isNegative, bool constTime), size_t g(EcT& z, const EcT *xVec, const mpz_class *yVec, size_t yn, bool constTime) = 0)
+	static void setMulArrayGLV(void f(EcT& z, const EcT& x, const fp::Unit *y, size_t yn, bool isNegative, bool constTime), size_t g(EcT& z, const EcT *xVec, const mpz_class *yVec, size_t yn) = 0)
 	{
 		mulArrayGLV = f;
 		mulVecNGLV = g;
@@ -1477,7 +1489,7 @@ private:
 
 public:
 	template<class tag, size_t maxBitSize, template<class _tag, size_t _maxBitSize>class FpT>
-	static inline void mulVec(EcT& z, const EcT *xVec, const FpT<tag, maxBitSize> *yVec, size_t n, bool constTime = false)
+	static inline void mulVec(EcT& z, const EcT *xVec, const FpT<tag, maxBitSize> *yVec, size_t n)
 	{
 		/*
 			mulVecNGLV is a little slow for large n
@@ -1489,7 +1501,7 @@ public:
 				yVec[i].getMpz(&b, myVec[i]);
 				assert(b); (void)b;
 			}
-			size_t done = mulVecNGLV(z, xVec, myVec, n, constTime);
+			size_t done = mulVecNGLV(z, xVec, myVec, n);
 			assert(done == n); (void)done;
 			return;
 		}
@@ -1559,7 +1571,7 @@ template<class Fp> int EcT<Fp>::ioMode_;
 template<class Fp> bool EcT<Fp>::verifyOrder_;
 template<class Fp> mpz_class EcT<Fp>::order_;
 template<class Fp> void (*EcT<Fp>::mulArrayGLV)(EcT& z, const EcT& x, const fp::Unit *y, size_t yn, bool isNegative, bool constTime);
-template<class Fp> size_t (*EcT<Fp>::mulVecNGLV)(EcT& z, const EcT *xVec, const mpz_class *yVec, size_t yn, bool constTime);
+template<class Fp> size_t (*EcT<Fp>::mulVecNGLV)(EcT& z, const EcT *xVec, const mpz_class *yVec, size_t yn);
 template<class Fp> int EcT<Fp>::mode_;
 
 // r = the order of Ec
@@ -1611,14 +1623,14 @@ public:
 	}
 	static void mul(Ec& Q, const Ec& P, const mpz_class& x, bool constTime = false)
 	{
-		mulVecNGLV(Q, &P, &x, 1, constTime);
-	}
-	static inline size_t mulVecNGLV(Ec& z, const Ec *xVec, const mpz_class *yVec, size_t n, bool constTime)
-	{
-		if (n == 1 && constTime) {
-			ec::local::mul1CT<GLV1, Ec, _Fr, 2, 4>(z, *xVec, *yVec);
-			return 1;
+		if (constTime) {
+			ec::local::mul1CT<GLV1, Ec, _Fr, 2, 4>(Q, P, x);
+		} else {
+			ec::local::mulVecNGLVT<GLV1, Ec, _Fr, 2, 5, 1>(Q, &P, &x, 1);
 		}
+	}
+	static inline size_t mulVecNGLV(Ec& z, const Ec *xVec, const mpz_class *yVec, size_t n)
+	{
 		return ec::local::mulVecNGLVT<GLV1, Ec, _Fr, 2, 5, mcl::fp::maxMulVecNGLV>(z, xVec, yVec, n);
 	}
 	static void mulArrayGLV(Ec& z, const Ec& x, const mcl::fp::Unit *y, size_t yn, bool isNegative, bool constTime)

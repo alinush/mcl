@@ -295,7 +295,7 @@ struct MapTo {
 	int type_;
 	int mapToMode_;
 	bool useOriginalG2cofactor_;
-	MapToG2_WB19<Fp, Fp2, G2> mapToG2_WB19_;
+	MapTo_WB19<Fp, G1, Fp2, G2> mapTo_WB19_;
 	MapTo()
 		: type_(0)
 		, mapToMode_(MCL_MAP_TO_MODE_ORIGINAL)
@@ -486,7 +486,7 @@ struct MapTo {
 		assert(b);
 		(void)b;
 		Fr::inv(g2cofactorAdj_, g2cofactorAdjInv_);
-		mapToG2_WB19_.init();
+		mapTo_WB19_.init();
 	}
 	/*
 		change mapTo function to mode
@@ -500,35 +500,16 @@ struct MapTo {
 		switch (mode) {
 		case MCL_MAP_TO_MODE_ORIGINAL:
 		case MCL_MAP_TO_MODE_TRY_AND_INC:
-		case MCL_MAP_TO_MODE_ETH2:
+//		case MCL_MAP_TO_MODE_ETH2:
 			mapToMode_ = mode;
-			return true;
-			break;
-		case MCL_MAP_TO_MODE_HASH_TO_CURVE_05:
-			mapToMode_ = mode;
-			mapToG2_WB19_.setDraftVersion(5);
-			return true;
-			break;
-		case MCL_MAP_TO_MODE_HASH_TO_CURVE_06:
-			mapToMode_ = mode;
-			mapToG2_WB19_.setDraftVersion(6);
 			return true;
 			break;
 		case MCL_MAP_TO_MODE_HASH_TO_CURVE_07:
 			mapToMode_ = mode;
-			mapToG2_WB19_.setDraftVersion(7);
 			return true;
 			break;
 		default:
 			return false;
-		}
-	}
-	void setOriginalG2cofactor(bool enable)
-	{
-		if (type_ == BLS12type) {
-			useOriginalG2cofactor_ = enable;
-		} else {
-			useOriginalG2cofactor_ = false;
 		}
 	}
 	/*
@@ -551,7 +532,7 @@ struct MapTo {
 	template<class G, class F>
 	bool mapToEc(G& P, const F& t) const
 	{
-		if (mapToMode_ == MCL_MAP_TO_MODE_TRY_AND_INC || mapToMode_ == MCL_MAP_TO_MODE_ETH2) {
+		if (mapToMode_ == MCL_MAP_TO_MODE_TRY_AND_INC) {
 			naiveMapTo<G, F>(P, t);
 		} else {
 			if (!calcBN<G, F>(P, t)) return false;
@@ -584,25 +565,21 @@ struct MapTo {
 	}
 	bool calc(G1& P, const Fp& t) const
 	{
+		if (mapToMode_ == MCL_MAP_TO_MODE_HASH_TO_CURVE_07) {
+			mapTo_WB19_.FpToG1(P, t);
+			return true;
+		}
 		if (!mapToEc(P, t)) return false;
 		mulByCofactor(P);
 		return true;
 	}
 	bool calc(G2& P, const Fp2& t, bool fast = false) const
 	{
-		if (mapToMode_ == MCL_MAP_TO_MODE_WB19 || mapToMode_ >= MCL_MAP_TO_MODE_HASH_TO_CURVE_06) {
-			mapToG2_WB19_.opt_swu2_map(P, t);
+		if (mapToMode_ == MCL_MAP_TO_MODE_HASH_TO_CURVE_07) {
+			mapTo_WB19_.Fp2ToG2(P, t);
 			return true;
 		}
 		if (!mapToEc(P, t)) return false;
-		if (mapToMode_ == MCL_MAP_TO_MODE_ETH2) {
-			Fp2 negY;
-			Fp2::neg(negY, P.y);
-			int cmp = Fp::compare(P.y.b, negY.b);
-			if (!(cmp > 0 || (cmp == 0 && P.y.a > negY.a))) {
-				P.y = negY;
-			}
-		}
 		mulByCofactor(P, fast);
 		return true;
 	}
@@ -803,7 +780,11 @@ struct GLV2T {
 	template<class T>
 	static void mul(T& Q, const T& P, const mpz_class& x, bool constTime = false)
 	{
-		mulVecNGLV(Q, &P, &x, 1, constTime);
+		if (constTime) {
+			ec::local::mul1CT<GLV2, T, Fr, 4, 4>(Q, P, x);
+		} else {
+			ec::local::mulVecNGLVT<GLV2, T, Fr, 4, 5, 1>(Q, &P, &x, 1);
+		}
 	}
 	template<class T>
 	static void mulLambda(T& Q, const T& P)
@@ -811,12 +792,8 @@ struct GLV2T {
 		Frobenius(Q, P);
 	}
 	template<class T>
-	static size_t mulVecNGLV(T& z, const T *xVec, const mpz_class *yVec, size_t n, bool constTime)
+	static size_t mulVecNGLV(T& z, const T *xVec, const mpz_class *yVec, size_t n)
 	{
-		if (n == 1 && constTime) {
-			ec::local::mul1CT<GLV2, T, Fr, 4, 4>(z, *xVec, *yVec);
-			return 1;
-		}
 		return ec::local::mulVecNGLVT<GLV2, T, Fr, 4, 5, fp::maxMulVecNGLV>(z, xVec, yVec, n);
 	}
 	static void pow(Fp12& z, const Fp12& x, const mpz_class& y, bool constTime = false)
@@ -1024,17 +1001,17 @@ inline void powArrayGLV2(Fp12& z, const Fp12& x, const mcl::fp::Unit *y, size_t 
 	GLV2::pow(z, x, s, constTime);
 }
 
-inline size_t mulVecNGLV2(G2& z, const G2 *xVec, const mpz_class *yVec, size_t n, bool constTime)
+inline size_t mulVecNGLV2(G2& z, const G2 *xVec, const mpz_class *yVec, size_t n)
 {
-	return GLV2::mulVecNGLV(z, xVec, yVec, n, constTime);
+	return GLV2::mulVecNGLV(z, xVec, yVec, n);
 }
 
-inline size_t powVecNGLV2(Fp12& z, const Fp12 *xVec, const mpz_class *yVec, size_t n, bool constTime)
+inline size_t powVecNGLV2(Fp12& z, const Fp12 *xVec, const mpz_class *yVec, size_t n)
 {
 	typedef GroupMtoA<Fp12> AG; // as additive group
 	AG& _z = static_cast<AG&>(z);
 	const AG *_xVec = static_cast<const AG*>(xVec);
-	return GLV2::mulVecNGLV(_z, _xVec, yVec, n, constTime);
+	return GLV2::mulVecNGLV(_z, _xVec, yVec, n);
 }
 
 /*
@@ -2023,15 +2000,8 @@ inline void millerLoopVec(Fp12& f, const G1* Pvec, const G2* Qvec, size_t n)
 	}
 }
 
-inline void setOriginalG2cofactor(bool enable)
-{
-	BN::nonConstParam.mapTo.setOriginalG2cofactor(enable);
-}
 inline bool setMapToMode(int mode)
 {
-	if (mode == MCL_MAP_TO_MODE_ETH2) {
-		setOriginalG2cofactor(true);
-	}
 	return BN::nonConstParam.mapTo.setMapToMode(mode);
 }
 inline int getMapToMode()
@@ -2056,6 +2026,11 @@ inline void mapToG2(G2& P, const Fp2& x, bool fast = false)
 #endif
 inline void hashAndMapToG1(G1& P, const void *buf, size_t bufSize)
 {
+	int mode = getMapToMode();
+	if (mode == MCL_MAP_TO_MODE_HASH_TO_CURVE_07) {
+		BN::param.mapTo.mapTo_WB19_.msgToG1(P, buf, bufSize);
+		return;
+	}
 	Fp t;
 	t.setHashOf(buf, bufSize);
 	bool b;
@@ -2068,7 +2043,7 @@ inline void hashAndMapToG2(G2& P, const void *buf, size_t bufSize)
 {
 	int mode = getMapToMode();
 	if (mode == MCL_MAP_TO_MODE_WB19 || mode >= MCL_MAP_TO_MODE_HASH_TO_CURVE_06) {
-		BN::param.mapTo.mapToG2_WB19_.msgToG2(P, buf, bufSize);
+		BN::param.mapTo.mapTo_WB19_.msgToG2(P, buf, bufSize);
 		return;
 	}
 	Fp2 t;
@@ -2196,37 +2171,6 @@ inline void initG1only(bool *pb, const mcl::EcParam& para)
 inline const G1& getG1basePoint()
 {
 	return BN::param.basePoint;
-}
-
-inline const Fr& getG2cofactorAdj()
-{
-	return BN::param.mapTo.g2cofactorAdj_;
-}
-
-inline const Fr& getG2cofactorAdjInv()
-{
-	return BN::param.mapTo.g2cofactorAdjInv_;
-}
-
-inline bool ethMsgToFp2(Fp2& out, const void *msg, size_t msgSize, uint8_t ctr, const void *dst, size_t dstSize)
-{
-	if (!BN::param.isBLS12) return false;
-	hashToFp2old(out, msg, msgSize, ctr, dst, dstSize);
-	return true;
-}
-
-inline bool ethFp2ToG2(G2& out, const Fp2& t1, const Fp2 *t2 = 0)
-{
-	if (!BN::param.isBLS12) return false;
-	BN::param.mapTo.mapToG2_WB19_.opt_swu2_map(out, t1, t2);
-	return true;
-}
-
-inline bool ethMsgToG2(G2& out, const void *msg, size_t msgSize, const void *dst, size_t dstSize)
-{
-	if (!BN::param.isBLS12) return false;
-	BN::param.mapTo.mapToG2_WB19_.map2curve_osswu2(out, msg, msgSize, dst, dstSize);
-	return true;
 }
 
 } } // mcl::bn
